@@ -2,6 +2,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from .layers import SPLinear
+
 
 def trunc_normal_(x, mean=0., std=1.):
     # From Fast.ai
@@ -30,9 +32,9 @@ def pretrained_embedding(ni, nf, weights, bias=False, padding_idx=None, requires
     return layer
 
 
-def pretrained_linear(ni, nf, weights, bias=False, requires_grad=True):
+def pretrained_sparse_linear(ni, nf, weights, bias=False, requires_grad=True):
     _, nh = weights.shape
-    layer_1 = nn.Linear(ni, nh, bias=False)
+    layer_1 = SPLinear(ni, nh, bias=False)
     layer_1.weight.data.copy_(weights)
     layer_1.weight.requires_grad = requires_grad
     layer_2 = nn.Linear(nh, nf, bias=bias)
@@ -129,17 +131,17 @@ class DeepFM(nn.Module):
         vec_proj_layers = []
         for i, vsize in enumerate(input_sizes):
             # first order
-            b_proj_layer = nn.Linear(vsize, 1, bias=False)
+            b_proj_layer = SPLinear(vsize, 1, bias=False)
             nn.init.zeros_(b_proj_layer.weight.data)
             bias_proj_layers.append(b_proj_layer)
             # second layer
             weights = weights_dict.get(i, None)
             if weights is not None:
-                v_proj_layer = pretrained_linear(vsize, emb_size, weights,
-                                                 bias=pretrained_bias,
-                                                 requires_grad=pretrained_finetune)
+                v_proj_layer = pretrained_sparse_linear(vsize, emb_size, weights,
+                                                        bias=pretrained_bias,
+                                                        requires_grad=pretrained_finetune)
             else:
-                v_proj_layer = nn.Linear(vsize, emb_size, bias=False)
+                v_proj_layer = SPLinear(vsize, emb_size, bias=False)
                 trunc_normal_(v_proj_layer.weight.data, std=0.01)
             vec_proj_layers.append(v_proj_layer)
         return vec_proj_layers, bias_proj_layers
