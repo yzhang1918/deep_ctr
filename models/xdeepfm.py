@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 
-from models.field_encoder import FieldEncoder
-from models.deepfm_v2 import LinearBlock, FM, PlainDNN
+from .field_encoder import FieldEncoder
+from .deepfm_v2 import LinearBlock, FM, PlainDNN
 
 
 class CINLayer(nn.Module):
@@ -97,7 +97,7 @@ class xDeepFM(nn.Module):
             # FM Part
             linear_part = self.linear_encoder(ids, sparse_xs, dense_xs)
             fm_score = self.fm_layer(linear_part, embs)
-            z = z_deep + z_cin + fm_score
+            z = z_deep + z_cin + fm_score.unsqueeze(-1)
         else:
             z = z_deep + z_cin
         return z
