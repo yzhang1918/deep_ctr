@@ -113,7 +113,7 @@ class OnehotEncoderList(nn.Module):
         for i, vsize in enumerate(vocab_sizes):
             if emb_size == 1:
                 emb = nn.Embedding(vsize, 1, padding_idx=padding_idx)
-                nn.init.zeros_(emb)
+                nn.init.zeros_(emb.weight.data)
             else:
                 weight = pretrained_weights.get(i, None)
                 if weight is not None:
