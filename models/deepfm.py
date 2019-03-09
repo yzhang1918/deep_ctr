@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from models.layers import embedding, pretrained_embedding, pretrained_sparse_linear, SparseLinear, trunc_normal_
+from .layers import embedding, pretrained_embedding, pretrained_sparse_linear, SparseLinear, trunc_normal_
 
 
 class DeepFM(nn.Module):

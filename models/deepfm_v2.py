@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from models.field_encoder import FieldEncoder
+from .field_encoder import FieldEncoder
 
 
 class DeepFMv2(nn.Module):
