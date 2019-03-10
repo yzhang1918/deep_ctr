@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from .field_encoder import FieldEncoder
-from .deepfm_v2 import LinearBlock, FM, PlainDNN
+from .deepfm import LinearBlock, FM, PlainDNN
 
 
 class CINLayer(nn.Module):
@@ -64,7 +64,7 @@ class xDeepFM(nn.Module):
                  onehot_vocab_sizes=None, sparse_input_sizes=None, dense_input_sizes=None,
                  pretrained_onehot=None, pretrained_sparse=None,
                  pretrained_bias=False, pretrained_finetune=False, padding_idx=None,
-                 cin_bias=False, cin_use_act=False, use_fm=False,
+                 cin_bias=False, cin_use_act=False, use_fm=False, use_weights=False,
                  residual=True, use_bn=True, slope=0.2, emb_dropout=0.5, dropout=0.5):
         super().__init__()
         self.encoder = FieldEncoder(emb_size, onehot_vocab_sizes, sparse_input_sizes, dense_input_sizes,
@@ -83,6 +83,10 @@ class xDeepFM(nn.Module):
                                    dropout=dropout, slope=slope)
         self.cin_layer = CIN(self.n_fields, cin_fields, in_size=emb_size, out_size=net_dims[-1],
                              bias=cin_bias, use_act=cin_use_act, slope=slope, dropout=dropout, use_bn=use_bn)
+        self.use_weights = use_weights
+        if use_weights:
+            self.logits = nn.Parameter(torch.FloatTensor(3 if use_fm else 2))
+            nn.init.zeros_(self.logits)
 
     def forward(self, ids=None, sparse_xs=None, dense_xs=None):
         embs = self.encoder(ids, sparse_xs, dense_xs)
@@ -93,11 +97,14 @@ class xDeepFM(nn.Module):
         # CIN
         z_cin = self.cin_layer(embs)
 
+        if self.use_weights:
+            weights = torch.softmax(self.logits, dim=0)
+
         if self.use_fm:
             # FM Part
             linear_part = self.linear_encoder(ids, sparse_xs, dense_xs)
             fm_score = self.fm_layer(linear_part, embs)
-            z = z_deep + z_cin + fm_score.unsqueeze(-1)
+            z = z_deep * weights[0] + z_cin * weights[1] + fm_score.unsqueeze(-1) * weights[2]
         else:
-            z = z_deep + z_cin
+            z = z_deep * weights[0] + z_cin * weights[1]
         return z

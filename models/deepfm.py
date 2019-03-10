@@ -72,7 +72,7 @@ class PlainDNN(nn.Module):
         return self.net_layers(x)
 
 
-class DeepFMv2(nn.Module):
+class DeepFM(nn.Module):
 
     def __init__(self, emb_size, net_dims,
                  onehot_vocab_sizes=None, sparse_input_sizes=None, dense_input_sizes=None,
