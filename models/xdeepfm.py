@@ -99,6 +99,8 @@ class xDeepFM(nn.Module):
 
         if self.use_weights:
             weights = torch.softmax(self.logits, dim=0)
+        else:
+            weights = [1., 1., 1.]
 
         if self.use_fm:
             # FM Part
