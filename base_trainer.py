@@ -23,7 +23,7 @@ class BaseTrainer:
         torch.save(state, path)
 
     def load(self, name, strict=True, with_opt=True):
-        state = torch.load(self.save_path / f'{name}.pkl',
+        state = torch.load(self.save_path / f'{name}.pth',
                            map_location=next(self.model.parameters()).device)
         self.model.load_state_dict(state['model'], strict=strict)
         opt_state = state.get('opt', None)
