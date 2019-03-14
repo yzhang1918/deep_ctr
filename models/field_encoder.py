@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from .layers import (embedding, pretrained_embedding, pretrained_sparse_linear,
-                           SparseLinear, trunc_normal_)
+                     SparseLinear, trunc_normal_)
 
 
 class FieldEncoder(nn.Module):

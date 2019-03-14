@@ -7,9 +7,9 @@ class SparseLinear(nn.Linear):
 
     def forward(self, x):
         if isinstance(x, list) or isinstance(x, tuple):
-            ind, val = x
+            ind, val, size = x
         else:
-            ind, val = x._indices(), x._values()
+            ind, val, size = x._indices(), x._values(), x.size(0)
         y = spmm(ind, val, ind.size(0), self.weight.t())
         if self.bias is not None:
             y += self.bias
