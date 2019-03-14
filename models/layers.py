@@ -10,7 +10,7 @@ class SparseLinear(nn.Linear):
             ind, val = x
         else:
             ind, val = x._indices(), x._values()
-        y = spmm(ind, val, x.size(0), self.weight.t())
+        y = spmm(ind, val, ind.size(0), self.weight.t())
         if self.bias is not None:
             y += self.bias
         return y
