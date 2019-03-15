@@ -286,6 +286,15 @@ class MainFeatures(Features):
         super().__init__(onehot_mat=onehot_mat, onehot_names=['user_city', 'channel'])
         self.uids = self.df.uid.values + 1
         self.iids = self.df.item_id.values + 1
+        # a little hack here
+        tmp = self[0]
+        self.onehot_sizes = tmp.onehot_sizes
+        self.sparse_sizes = tmp.sparse_sizes
+        self.dense_sizes = tmp.dense_sizes
+        self.onehot_names = tmp.onehot_names
+        self.sparse_names = tmp.sparse_names
+        self.dense_names = tmp.dense_names
+        # We do not update infos!
 
     def __getitem__(self, i):
         context_f = super().__getitem__(i)
