@@ -280,12 +280,16 @@ class UserHistoryFeatures(UserFeatures):
 
 class MainFeatures(Features):
 
-    def __init__(self, df, user_feats, item_feats):
+    def __init__(self, df, onehot_sizes, user_feats, item_feats):
         self.df = df
         self.user_feats = user_feats
         self.item_feats = item_feats
         onehot_mat = self.df[['user_city', 'channel']].values + 1
         super().__init__(onehot_mat=onehot_mat, onehot_names=['user_city', 'channel'])
+        # fix onehot sizes (IMPORTANT)
+        self.onehot_sizes = onehot_sizes
+        self.infos['onehot_sizes'] = onehot_sizes
+
         self.uids = self.df.uid.values + 1
         self.iids = self.df.item_id.values + 1
         # a little hack here
@@ -383,10 +387,11 @@ def get_dataloader(bs=128, test_bs=None, use_uid=True, use_hist=False, max_len=N
     valid_idx = main_df.valid == 1
     test_idx = main_df.test == 1
     cols = ['uid', 'item_id', 'user_city', 'channel']
+    onehot_sizes = (main_df[['user_city', 'channel']].values.max(0) + 2).tolist()
 
-    train_feats = MainFeatures(main_df.loc[train_idx, cols], user_feats, item_feats)
-    valid_feats = MainFeatures(main_df.loc[valid_idx, cols], user_feats, item_feats)
-    test_feats = MainFeatures(main_df.loc[test_idx, cols], user_feats, item_feats)
+    train_feats = MainFeatures(main_df.loc[train_idx, cols], onehot_sizes, user_feats, item_feats)
+    valid_feats = MainFeatures(main_df.loc[valid_idx, cols], onehot_sizes, user_feats, item_feats)
+    test_feats = MainFeatures(main_df.loc[test_idx, cols], onehot_sizes, user_feats, item_feats)
 
     train_ds = FeatDataset(train_feats, main_df.loc[train_idx, ['finish', 'like']].values)
     valid_ds = FeatDataset(valid_feats, main_df.loc[valid_idx, ['finish', 'like']].values)
