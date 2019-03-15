@@ -7,6 +7,7 @@ from numbers import Integral
 from typing import Iterable
 
 import torch
+from sklearn.preprocessing import normalize
 from torch.utils.data import Dataset, DataLoader
 
 from ..utils import loadpkl, parse_csr
@@ -177,6 +178,7 @@ class ItemFeatures(Features):
         audio_fmat = loadpkl(root / f'audio_features_fill_zero{"_norm" if use_normed else ""}.pkl')
 
         title_fspmat = loadpkl(root / 'title_csr_50.pkl')
+        title_fspmat = normalize(title_fspmat, norm='l1', axis=1, copy=True).astype(np.float32)
 
         face_fdf = pd.read_csv(root / f'face_features_{"norm" if use_normed else "raw"}.csv')
         face_fdf = face_fdf.reindex(range(-1, self.n_items - 1), fill_value=0)
