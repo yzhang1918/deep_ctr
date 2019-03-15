@@ -327,7 +327,7 @@ class FeatDataset(Dataset):
 def collate_feat_fn(batch):
     # concat
     feats, y = zip(*batch)
-    y = np.stack(y, 0)
+    y = torch.from_numpy(np.stack(y, 0)).float()
     cat_feats = Features.concat_records(feats)
 
     # to tensor
