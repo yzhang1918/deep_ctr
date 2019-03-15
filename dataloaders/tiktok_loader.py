@@ -183,7 +183,7 @@ class ItemFeatures(Features):
 
         onehot_mat = basic_item_fdf.values + 1
         sparse_mats = [title_fspmat]
-        dense_mats = [video_fmat, audio_fmat, face_fdf.values]
+        dense_mats = [video_fmat, audio_fmat, face_fdf.values.astype(np.float32)]
 
         onehot_names = basic_item_fdf.columns.tolist()
         sparse_names = ['title']
