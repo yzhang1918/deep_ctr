@@ -26,3 +26,11 @@ def csr2torch(mat):
 
     torch_mat = torch.sparse.FloatTensor(i, v, torch.Size(shape))
     return torch_mat
+
+
+def parse_csr(mat):
+    coo = mat.tocoo()
+    values = torch.from_numpy(coo.data)
+    indices = torch.from_numpy(np.vstack((coo.row, coo.col)))
+    shape = coo.shape
+    return indices, values, shape[0]
