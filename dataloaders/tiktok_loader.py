@@ -341,9 +341,9 @@ def collate_feat_fn(batch):
     # to tensor
     def to_tensor(feat):
         a, b, c = feat
-        a = torch.from_numpy(a)
+        a = torch.from_numpy(a.astype(int, copy=False))
         b = [parse_csr(x) for x in b]
-        c = [torch.from_numpy(x) for x in c]
+        c = [torch.from_numpy(x.astype(np.float32, copy=False)) for x in c]
         return a, b, c
 
     cat_feats = to_tensor(cat_feats)

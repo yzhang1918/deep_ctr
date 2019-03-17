@@ -30,7 +30,7 @@ def csr2torch(mat):
 
 def parse_csr(mat):
     coo = mat.tocoo()
-    values = torch.from_numpy(coo.data)
+    values = torch.from_numpy(coo.data.astype(np.float32, copy=False))
     indices = torch.from_numpy(np.vstack((coo.row, coo.col))).long()
     shape = coo.shape
     return indices, values, shape[0]
