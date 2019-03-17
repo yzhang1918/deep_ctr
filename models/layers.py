@@ -3,6 +3,33 @@ from torch import nn
 from torch_sparse import spmm
 
 
+class ColdStartEmbedding(nn.Embedding):
+
+    def __init__(self, num_embeddings, embedding_dim, padding_idx=None, max_norm=None, norm_type=2.,
+                 scale_grad_by_freq=False, sparse=False, _weight=None, use_mean=False):
+        super().__init__(num_embeddings, embedding_dim, padding_idx,
+                         max_norm, norm_type, scale_grad_by_freq, sparse, _weight)
+        self.use_mean = use_mean if self.padding_idx is not None else True
+        self.register_buffer('flags', torch.zeros(self.weight.size(0), dtype=torch.uint8))
+
+    def forward(self, ids):
+        if self.training:
+            self.flags.scatter_(0, ids.flatten(), 1)
+        return super().forward(ids)
+
+    def eval(self):
+        with torch.no_grad():
+            seen = self.weight[self.flags]
+            if self.use_mean:
+                if seen.size(0) > 0:
+                    mu = seen.mean(0)
+                    self.weight.data[~self.flags] = mu
+            else:
+                mu = self.weight.data[self.padding_idx]
+                self.weight.data[~self.flags] = mu
+        super().eval()
+
+
 class SparseLinear(nn.Linear):
 
     def forward(self, x):
@@ -23,7 +50,7 @@ def trunc_normal_(x, mean=0., std=1.):
 
 def embedding(ni, nf, padding_idx=None):
     # From Fast.ai
-    emb = nn.Embedding(ni, nf, padding_idx=padding_idx)
+    emb = ColdStartEmbedding(ni, nf, padding_idx=padding_idx)
     # See https://arxiv.org/abs/1711.09160
     with torch.no_grad():
         trunc_normal_(emb.weight, std=0.01)
