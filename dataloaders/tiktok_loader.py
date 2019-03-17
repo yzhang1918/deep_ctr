@@ -220,14 +220,17 @@ def bucketize_by_percentile(value, n_buckets):
 class UserFeatures(Features):
     n_users = 73975
 
-    def __init__(self, use_uid):
+    def __init__(self, use_uid, root):
+        self.root = pathlib.Path(root)
         if use_uid:
             onehot_mat = np.arange(self.n_users)[:, None].astype(int)
             onehot_names = ['user_id']
         else:
             onehot_mat = np.zeros([self.n_users, 0], dtype=int)
             onehot_names = None
-        super().__init__(onehot_mat=onehot_mat, onehot_names=onehot_names)
+        clicked_video = loadpkl(root / 'user_clicked_video_norm.pkl')
+        super().__init__(onehot_mat=onehot_mat, onehot_names=onehot_names,
+                         dense_mats=[clicked_video], dense_names=['clicked_video'])
 
 
 class UserHistoryFeatures(UserFeatures):
@@ -240,7 +243,7 @@ class UserHistoryFeatures(UserFeatures):
         self.item_feats = item_feats
         self.user_hist_dict = loadpkl(self.root / 'user_history_dict.pkl')
         # For now, we have no features.
-        super().__init__(use_uid)
+        super().__init__(use_uid, root)
 
     def __len__(self):
         return self.n_users
@@ -265,7 +268,7 @@ class UserHistoryFeatures(UserFeatures):
         return f, lens
 
     def get_hist_data(self, i):
-        hist = self.user_hist_dict.get(i + 1, [])  # padding idx = 0
+        hist = self.user_hist_dict.get(i - 1, [])  # padding idx = 0
         if self.max_len is None:
             hist = hist
         elif self.sample_pad:
@@ -280,12 +283,13 @@ class UserHistoryFeatures(UserFeatures):
 
 class MainFeatures(Features):
 
-    def __init__(self, df, onehot_sizes, user_feats, item_feats):
+    def __init__(self, df, dense_mats, dense_names, onehot_sizes, user_feats, item_feats):
         self.df = df
         self.user_feats = user_feats
         self.item_feats = item_feats
         onehot_mat = self.df[['user_city', 'channel']].values + 1
-        super().__init__(onehot_mat=onehot_mat, onehot_names=['user_city', 'channel'])
+        super().__init__(onehot_mat=onehot_mat, onehot_names=['user_city', 'channel'],
+                         dense_mats=dense_mats, dense_names=dense_names)
         # fix onehot sizes (IMPORTANT)
         self.onehot_sizes = onehot_sizes
         self.infos['onehot_sizes'] = onehot_sizes
@@ -380,7 +384,7 @@ def get_dataloader(bs=128, test_bs=None, use_uid=True, use_hist=False, max_len=N
                                          sample_pad=sample_pad,
                                          root=root)
     else:
-        user_feats = UserFeatures(use_uid)
+        user_feats = UserFeatures(use_uid, root=root)
 
     main_df = pd.read_csv(root / 'sample_split_slim.csv')
     train_idx = main_df.train == 1
@@ -389,9 +393,19 @@ def get_dataloader(bs=128, test_bs=None, use_uid=True, use_hist=False, max_len=N
     cols = ['uid', 'item_id', 'user_city', 'channel']
     onehot_sizes = (main_df[['user_city', 'channel']].values.max(0) + 2).tolist()
 
-    train_feats = MainFeatures(main_df.loc[train_idx, cols], onehot_sizes, user_feats, item_feats)
-    valid_feats = MainFeatures(main_df.loc[valid_idx, cols], onehot_sizes, user_feats, item_feats)
-    test_feats = MainFeatures(main_df.loc[test_idx, cols], onehot_sizes, user_feats, item_feats)
+    # Extra Features provided by fhj
+    dense_dfs = loadpkl(root / 'processed_features.pkl')
+    train_dense = [df[train_idx].values for df in dense_dfs]
+    valid_dense = [df[valid_idx].values for df in dense_dfs]
+    test_dense = [df[test_idx].values for df in dense_dfs]
+    dense_names = ['ex_author', 'ex_icity', 'ex_item', 'ex_music', 'ex_ucity', 'ex_user']
+
+    train_feats = MainFeatures(main_df.loc[train_idx, cols], train_dense, dense_names,
+                               onehot_sizes, user_feats, item_feats)
+    valid_feats = MainFeatures(main_df.loc[valid_idx, cols], valid_dense, dense_names,
+                               onehot_sizes, user_feats, item_feats)
+    test_feats = MainFeatures(main_df.loc[test_idx, cols], test_dense, dense_names,
+                              onehot_sizes, user_feats, item_feats)
 
     train_ds = FeatDataset(train_feats, main_df.loc[train_idx, ['finish', 'like']].values)
     valid_ds = FeatDataset(valid_feats, main_df.loc[valid_idx, ['finish', 'like']].values)
