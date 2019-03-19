@@ -10,7 +10,7 @@ from .base_trainer import BaseTrainer
 
 class TikTokTrainer(BaseTrainer):
 
-    def __init__(self, model, optimizer, train_dl, valid_dl, test_dl, criterion,
+    def __init__(self, model, optimizer, criterion, train_dl, valid_dl, test_dl,
                  smooth_factor=.9, break_at=-1, save_path='./models'):
         super().__init__(model, optimizer, criterion, train_dl, save_path=save_path)
         self.valid_dl = valid_dl
