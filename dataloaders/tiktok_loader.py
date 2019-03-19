@@ -467,7 +467,7 @@ def get_dataloader(bs=128, test_bs=None, use_uid=True, num_workers=8, root='data
     valid_ds = FeatDataset(valid_feats, main_df.loc[valid_idx, ['finish', 'like']].values)
     test_ds = FeatDataset(test_feats, main_df.loc[test_idx, ['finish', 'like']].values)
 
-    train_dl = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workere=num_workers,
+    train_dl = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=num_workers,
                           drop_last=False, collate_fn=FeatureBatch)
     valid_dl = DataLoader(valid_ds, batch_size=test_bs, num_workers=num_workers, collate_fn=FeatureBatch)
     test_dl = DataLoader(test_ds, batch_size=test_bs, num_workers=num_workers, collate_fn=FeatureBatch)
