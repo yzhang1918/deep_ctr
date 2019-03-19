@@ -13,6 +13,21 @@ from torch.utils.data import Dataset, DataLoader
 from ..utils import loadpkl, parse_csr
 
 
+def bucketize_by_percentile(value, n_buckets):
+    ps = np.linspace(0, 100, n_buckets + 1)[1: -1]
+    bins = [value.min()] + [np.percentile(value, p) for p in ps] + [value.max()]
+    ret = pd.cut(value, bins=bins, include_lowest=True, duplicates='drop')
+    return ret.cat.codes
+
+
+def feat_to_tensor(feat):
+    a, b, c = feat
+    a = torch.from_numpy(a.astype(int, copy=False))
+    b = [parse_csr(x) for x in b]
+    c = [torch.from_numpy(x.astype(np.float32, copy=False)) for x in c]
+    return a, b, c
+
+
 class Features:
 
     def __init__(self, onehot_mat=None, sparse_mats=None, dense_mats=None,
@@ -105,6 +120,8 @@ class Features:
         if isinstance(i, Integral):
             if i >= len(self):
                 raise IndexError('index out of range')
+            if i < 0:
+                raise IndexError('negative index is not supported')
             i = slice(i, i + 1)  # for consistence
         sub_onehot = self.onehot_mat[i]
         sub_sparse = [x[i] for x in self.sparse_mats]
@@ -210,13 +227,6 @@ class ItemFeatures(Features):
         return basic_item_fdf
 
 
-def bucketize_by_percentile(value, n_buckets):
-    ps = np.linspace(0, 100, n_buckets + 1)[1: -1]
-    bins = [value.min()] + [np.percentile(value, p) for p in ps] + [value.max()]
-    ret = pd.cut(value, bins=bins, include_lowest=True, duplicates='drop')
-    return ret.cat.codes
-
-
 class UserFeatures(Features):
     n_users = 73975
 
@@ -233,54 +243,7 @@ class UserFeatures(Features):
                          dense_mats=[clicked_video], dense_names=['clicked_video'])
 
 
-class UserHistoryFeatures(UserFeatures):
-    n_users = 73975
-
-    def __init__(self, item_feats, use_uid=False, max_len=None, sample_pad=False, root='data/feature'):
-        self.max_len = max_len
-        self.sample_pad = sample_pad
-        self.root = pathlib.Path(root)
-        self.item_feats = item_feats
-        self.user_hist_dict = loadpkl(self.root / 'user_history_dict.pkl')
-        # For now, we have no features.
-        super().__init__(use_uid, root)
-
-    def __len__(self):
-        return self.n_users
-
-    def __getitem__(self, i):
-        if isinstance(i, Iterable):
-            hist_info = self.get_batch_hist_data(i)
-        else:
-            hist_info = self.get_hist_data(i)
-        f = super().__getitem__(i)
-        f.hist_feats, f.hist_lens = hist_info
-        return f
-
-    def get_batch_hist_data(self, indices):
-        lens = []
-        data = []
-        for i in indices:
-            hist_feat, hist_l = self.get_hist_data(i)
-            data.append(hist_feat)
-            lens.append(hist_l)
-        f = Features.concat_records(data)
-        return f, lens
-
-    def get_hist_data(self, i):
-        hist = self.user_hist_dict.get(i - 1, [])  # padding idx = 0
-        if self.max_len is None:
-            hist = hist
-        elif self.sample_pad:
-            hist = np.random.choice(hist, size=self.max_len, replace=True)
-        elif len(hist) > self.max_len:
-            hist = np.random.choice(hist, size=self.max_len, replace=False)
-        else:
-            raise NotImplementedError
-        hist_data = self.item_feats[np.add(hist, 1)]
-        return hist_data, len(hist)
-
-
+# The following three classes do not use history information.
 class MainFeatures(Features):
 
     def __init__(self, df, dense_mats, dense_names, onehot_sizes, user_feats, item_feats):
@@ -332,59 +295,152 @@ class FeatDataset(Dataset):
         return self.feats[i], self.targets[i]
 
 
-def collate_feat_fn(batch):
-    # concat
-    feats, y = zip(*batch)
-    y = torch.from_numpy(np.stack(y, 0)).float()
-    cat_feats = Features.concat_records(feats)
+class FeatureBatch:
 
-    # to tensor
-    def to_tensor(feat):
-        a, b, c = feat
-        a = torch.from_numpy(a.astype(int, copy=False))
-        b = [parse_csr(x) for x in b]
-        c = [torch.from_numpy(x.astype(np.float32, copy=False)) for x in c]
-        return a, b, c
+    def __init__(self, batch):
+        feats, y = zip(*batch)
+        self.y = torch.from_numpy(np.stack(y, 0)).float()
+        cat_feats = Features.concat_records(feats)
+        self.onehot_ids, self.sparse_xs, self.dense_xs = feat_to_tensor(cat_feats)
 
-    cat_feats = to_tensor(cat_feats)
-    return cat_feats, y
+    def __iter__(self):
+        yield (self.onehot_ids, self.sparse_xs, self.dense_xs)
+        yield self.y
 
-
-def collate_feat_fn_with_hist(batch):
-    # concat
-    feats, y = zip(*batch)
-    y = torch.from_numpy(np.stack(y, 0)).float()
-    cat_feats = Features.concat_records(feats)
-    cat_hist_feats = [f.hist_feats for f in feats]
-    hist_len = [len(x) for x in cat_hist_feats]
-    cat_hist_feats = Features.concat_records(cat_hist_feats)
-
-    # to tensor
-    def to_tensor(feat):
-        a, b, c = feat
-        a = torch.from_numpy(a)
-        b = [parse_csr(x) for x in b]
-        c = [torch.from_numpy(x) for x in c]
-        return a, b, c
-
-    cat_feats = to_tensor(cat_feats)
-    cat_hist_feats = to_tensor(cat_hist_feats)
-    return (cat_feats, cat_hist_feats, hist_len), y
+    def cuda(self):
+        self.onehot_ids = self.onehot_ids.cuda()
+        self.sparse_xs = [[a.cuda(), b.cuda(), c] for a, b, c in self.sparse_xs]
+        self.dense_xs = [x.cuda() for x in self.dense_xs]
+        self.y = self.y.cuda()
+        return self
 
 
-def get_dataloader(bs=128, test_bs=None, use_uid=True, use_hist=False, max_len=None, sample_pad=False, num_workers=8,
-                   root='data/feature'):
+# The following three classes are for DIN.
+class UserHistoryFeatures(UserFeatures):
+    n_users = 73975
+
+    def __init__(self, item_feats, use_uid=False, max_len=None, sample_pad=False, root='data/feature'):
+        self.max_len = max_len
+        self.sample_pad = sample_pad
+        self.root = pathlib.Path(root)
+        self.item_feats = item_feats
+        self.user_hist_dict = loadpkl(self.root / 'user_history_dict.pkl')
+        # For now, we have no features.
+        super().__init__(use_uid, root)
+
+    def __len__(self):
+        return self.n_users
+
+    def __getitem__(self, i):
+        if isinstance(i, Iterable):
+            hist_info = self.get_batch_hist_data(i)
+        else:
+            hist_info = self.get_hist_data(i)
+        f = super().__getitem__(i)
+        f.hist_feats, f.hist_lens = hist_info
+        return f
+
+    def get_batch_hist_data(self, indices):
+        lens = []
+        data = []
+        for i in indices:
+            hist_feat, hist_l = self.get_hist_data(i)
+            data.append(hist_feat)
+            lens.append(hist_l)
+        f = Features.concat_records(data)
+        return f, lens
+
+    def get_hist_data(self, i):
+        hist = self.user_hist_dict.get(i - 1, [])  # padding idx = 0
+        if self.max_len is None:
+            hist = hist
+        elif self.sample_pad:
+            hist = np.random.choice(hist, size=self.max_len, replace=True)
+        elif len(hist) > self.max_len:
+            hist = np.random.choice(hist, size=self.max_len, replace=False)
+        else:
+            raise NotImplementedError
+        hist_data = self.item_feats[np.add(hist, 1)]
+        return hist_data, len(hist)
+
+
+class ContextFeatures(Features):
+
+    def __init__(self, df, dense_mats, dense_names, onehot_sizes):
+        self.df = df
+        onehot_mat = self.df[['user_city', 'channel']].values + 1
+        super().__init__(onehot_mat=onehot_mat, onehot_names=['user_city', 'channel'],
+                         dense_mats=dense_mats, dense_names=dense_names)
+        # fix onehot sizes (IMPORTANT)
+        self.onehot_sizes = onehot_sizes
+        self.infos['onehot_sizes'] = onehot_sizes
+
+        self.uids = self.df.uid.values + 1
+        self.iids = self.df.item_id.values + 1
+
+    def get_uid_iid(self, i):
+        uids = self.uids[i]
+        iids = self.iids[i]
+        return uids, iids
+
+
+class HistFeatDataset(Dataset):
+
+    def __init__(self, user_feats, item_feats, context_feats, targets):
+        self.user_feats = user_feats
+        self.item_feats = item_feats
+        self.context_feats = context_feats
+        self.targets = targets
+
+    def __len__(self):
+        return len(self.context_feats)
+
+    def __getitem__(self, i):
+        c_fs = self.context_feats[i]
+        uids, iids = self.context_feats.get_uid_iid(i)
+        u_fs = self.user_feats[uids]
+        i_fs = self.item_feats[iids]
+        return (u_fs, i_fs, c_fs, u_fs.hist_feats, u_fs.hist_lens), self.targets[i]
+
+
+class HistFeatureBatch:
+
+    def __init__(self, batch):
+        hete_feats, y = zip(*batch)
+        self.y = torch.from_numpy(np.stack(y, 0)).float()
+
+        u_fs, i_fs, c_fs, h_fs, self.h_lens = zip(*hete_feats)
+
+        self.u_fs = feat_to_tensor(Features.concat_records(u_fs))
+        self.i_fs = feat_to_tensor(Features.concat_records(i_fs))
+        self.c_fs = feat_to_tensor(Features.concat_records(c_fs))
+        self.h_fs = feat_to_tensor(Features.concat_records(h_fs))
+
+    def __iter__(self):
+        yield (self.u_fs, self.i_fs, self.c_fs, self.h_fs, self.h_lens)
+        yield self.y
+
+    def _to_cuda(self, feat):
+        onehot_ids, sparse_xs, dense_xs = feat
+        onehot_ids = onehot_ids.cuda()
+        sparse_xs = [[a.cuda(), b.cuda(), c] for a, b, c in sparse_xs]
+        dense_xs = [x.cuda() for x in dense_xs]
+        return onehot_ids, sparse_xs, dense_xs
+
+    def cuda(self):
+        self.u_fs = self._to_cuda(self.u_fs)
+        self.i_fs = self._to_cuda(self.i_fs)
+        self.c_fs = self._to_cuda(self.c_fs)
+        self.h_fs = self._to_cuda(self.h_fs)
+        self.y = self.y.cuda()
+        return self
+
+
+def get_dataloader(bs=128, test_bs=None, use_uid=True, num_workers=8, root='data/feature'):
     test_bs = test_bs if test_bs else bs
     root = pathlib.Path(root)
     item_feats = ItemFeatures(root=root)
-    if use_hist:
-        user_feats = UserHistoryFeatures(item_feats,
-                                         use_uid=use_uid,
-                                         max_len=max_len,
-                                         sample_pad=sample_pad,
-                                         root=root)
-    else:
-        user_feats = UserFeatures(use_uid, root=root)
+    user_feats = UserFeatures(use_uid, root=root)
 
     main_df = pd.read_csv(root / 'sample_split_slim.csv')
     train_idx = main_df.train == 1
@@ -411,16 +467,59 @@ def get_dataloader(bs=128, test_bs=None, use_uid=True, use_hist=False, max_len=N
     valid_ds = FeatDataset(valid_feats, main_df.loc[valid_idx, ['finish', 'like']].values)
     test_ds = FeatDataset(test_feats, main_df.loc[test_idx, ['finish', 'like']].values)
 
-    if use_hist:
-        collate_fn = collate_feat_fn_with_hist
-    else:
-        collate_fn = collate_feat_fn
-
-    train_dl = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=num_workers, drop_last=False,
-                          collate_fn=collate_fn)
-    valid_dl = DataLoader(valid_ds, batch_size=test_bs, num_workers=num_workers, collate_fn=collate_fn)
-    test_dl = DataLoader(test_ds, batch_size=test_bs, num_workers=num_workers, collate_fn=collate_fn)
+    train_dl = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workere=num_workers,
+                          drop_last=False, collate_fn=FeatureBatch)
+    valid_dl = DataLoader(valid_ds, batch_size=test_bs, num_workers=num_workers, collate_fn=FeatureBatch)
+    test_dl = DataLoader(test_ds, batch_size=test_bs, num_workers=num_workers, collate_fn=FeatureBatch)
 
     sizes = train_feats.sizes
 
     return train_dl, valid_dl, test_dl, sizes
+
+
+def get_hist_dataloader(bs=128, test_bs=None, use_uid=True, max_len=300, sample_pad=True, num_workers=8,
+                        root='data/feature'):
+    test_bs = test_bs if test_bs else bs
+    root = pathlib.Path(root)
+    item_feats = ItemFeatures(root=root)
+    user_feats = UserHistoryFeatures(item_feats, use_uid=use_uid, max_len=max_len, sample_pad=sample_pad, root=root)
+
+    main_df = pd.read_csv(root / 'sample_split_slim.csv')
+    train_idx = main_df.train == 1
+    valid_idx = main_df.valid == 1
+    test_idx = main_df.test == 1
+    cols = ['uid', 'item_id', 'user_city', 'channel']
+    onehot_sizes = (main_df[['user_city', 'channel']].values.max(0) + 2).tolist()
+
+    # Extra Features provided by fhj
+    dense_dfs = loadpkl(root / 'processed_features.pkl')
+    train_dense = [df[train_idx].values for df in dense_dfs]
+    valid_dense = [df[valid_idx].values for df in dense_dfs]
+    test_dense = [df[test_idx].values for df in dense_dfs]
+    dense_names = ['ex_author', 'ex_icity', 'ex_item', 'ex_music', 'ex_ucity', 'ex_user']
+
+    # Context Features
+    train_cont_feats = ContextFeatures(main_df.loc[train_idx, cols], train_dense, dense_names, onehot_sizes)
+    valid_cont_feats = ContextFeatures(main_df.loc[valid_idx, cols], valid_dense, dense_names, onehot_sizes)
+    test_cont_feats = ContextFeatures(main_df.loc[test_idx, cols], test_dense, dense_names, onehot_sizes)
+
+    # Dataset
+    train_ds = HistFeatDataset(user_feats, item_feats, train_cont_feats,
+                               main_df.loc[train_idx, ['finish', 'like']].values)
+    valid_ds = HistFeatDataset(user_feats, item_feats, valid_cont_feats,
+                               main_df.loc[valid_idx, ['finish', 'like']].values)
+    test_ds = HistFeatDataset(user_feats, item_feats, test_cont_feats, main_df.loc[test_idx, ['finish', 'like']].values)
+
+    train_dl = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=num_workers, drop_last=False,
+                          collate_fn=HistFeatureBatch)
+    valid_dl = DataLoader(valid_ds, batch_size=test_bs, num_workers=num_workers, collate_fn=HistFeatureBatch)
+    test_dl = DataLoader(test_ds, batch_size=test_bs, num_workers=num_workers, collate_fn=HistFeatureBatch)
+
+    u_config = {k: v for k, v in
+                zip(['onehot_vocab_sizes', 'sparse_input_sizes', 'dense_input_sizes'], user_feats.sizes)}
+    i_config = {k: v for k, v in
+                zip(['onehot_vocab_sizes', 'sparse_input_sizes', 'dense_input_sizes'], item_feats.sizes)}
+    c_config = {k: v for k, v in
+                zip(['onehot_vocab_sizes', 'sparse_input_sizes', 'dense_input_sizes'], valid_cont_feats.sizes)}
+
+    return train_dl, valid_dl, test_dl, u_config, i_config, c_config

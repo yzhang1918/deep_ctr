@@ -41,11 +41,11 @@ class FieldEncoder(nn.Module):
 
     def forward(self, ids=None, sparse_xs=None, dense_xs=None):
         embs = []
-        if ids is not None:
+        if ids is not None and ids.size(0):
             embs.append(self.onehot_encoder(ids))
-        if sparse_xs is not None:
+        if sparse_xs is not None and len(sparse_xs):
             embs.append(self.sparse_encoder(sparse_xs))
-        if dense_xs is not None:
+        if dense_xs is not None and len(dense_xs):
             embs.append(self.dense_encoder(dense_xs))
         embs = torch.cat(embs, dim=-1)  # [bs, emb_size, n_fields]
         embs = self.emb_dropout_layer(embs)
