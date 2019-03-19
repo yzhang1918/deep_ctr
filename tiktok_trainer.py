@@ -94,6 +94,7 @@ class TikTokTrainer(BaseTrainer):
         total = self.break_at if self.break_at else len(self.test_dl)
         with torch.no_grad():
             with tqdm.tqdm(total=total) as t:
+                t.set_description('[   Test   ]')
                 for i, batch in enumerate(self.test_dl):
                     x, _ = batch.cuda()
                     preds = self.model(*x)
