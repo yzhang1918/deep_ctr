@@ -34,7 +34,7 @@ class LinearBlock(nn.Module):
         self.bn = nn.BatchNorm1d(in_size) if use_bn else None
         layers = []
         if dropout > 0:
-            layers.append(nn.Dropout())
+            layers.append(nn.Dropout(dropout))
         layers.append(nn.Linear(in_size, out_size, bias=bias))
         if act is not None:
             layers.append(act)
