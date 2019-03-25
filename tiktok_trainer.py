@@ -91,7 +91,7 @@ class TikTokTrainer(BaseTrainer):
     def test(self):
         self.model.eval()
         all_preds = []
-        total = self.break_at if self.break_at else len(self.test_dl)
+        total = self.break_at if self.break_at > 0 else len(self.test_dl)
         with torch.no_grad():
             with tqdm.tqdm(total=total) as t:
                 t.set_description('[   Test   ]')
